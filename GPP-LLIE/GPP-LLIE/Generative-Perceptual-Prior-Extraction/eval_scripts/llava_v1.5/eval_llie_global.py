@@ -5,9 +5,9 @@ import os
 
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from llava.conversation import conv_templates, SeparatorStyle
+from llava.mm_utils import tokenizer_image_token, get_model_name_from_path, KeywordsStoppingCriteria
 from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
-from llava.mm_utils import tokenizer_image_token, get_model_name_from_path, KeywordsStoppingCriteria
 
 from PIL import Image
 from tqdm import tqdm
@@ -202,6 +202,28 @@ def eval_model(args):
 
 
 if __name__ == "__main__":
+    import json
+    from huggingface_hub import snapshot_download
+
+    # 1. Get the path to the model files
+    repo_id = "teowu/llava_v1.5_7b_qinstruct_preview_v0.1"
+    local_dir = snapshot_download(repo_id=repo_id)
+    config_path = os.path.join(local_dir, "config.json")
+
+    # 2. Load the current configuration
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+
+    # 3. Change the model_type to your new alias
+    # This must match what you put in AutoConfig.register()
+    config['model_type'] = 'llava_custom'
+
+    # 4. Save the changes back to the file
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=2)
+
+    print(f"Success! config.json at {config_path} has been updated to 'llava_custom'.")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, default="teowu/llava_v1.5_7b_qinstruct_preview_v0.1")
     parser.add_argument("--model-base", type=str, default=None)
@@ -209,7 +231,9 @@ if __name__ == "__main__":
     parser.add_argument("--query1", type=str, default="Contrast refers to the difference in luminance or color that makes an object distinguishable from others within an image. Rate the contrast of the image.")
     parser.add_argument("--query2", type=str, default="Sharpness refers to the clarity of detail and the edge definition in an image. Rate the sharpness of the image.")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
-    parser.add_argument("--test-root", type=str, default="dataset/LOLv2-syn/Train")
-    args = parser.parse_args()
+    parser.add_argument("--test-root", type=str, default="/kaggle/working/imgEnhancement/Test")
+    #args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
+    
     eval_model(args)
