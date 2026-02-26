@@ -1,23 +1,21 @@
 import torch
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-
 import glob
 import os
-import gc
+import gc 
+import sys 
+import natsort
+import cv2
+import numpy as np
+from torchvision.utils import save_image
+from torchvision.transforms import ToTensor
 from model_incontext_revise import DiT_incontext_revise
 from diffusion import create_diffusion
 from vae.autoencoder import AutoencoderKL
 from vae.cond_encoder import CondEncoder
 from vae.encoder_decoder import Decoder2
-from utils import util
-from torchvision.utils import save_image
-from download import load_model
-from torch.nn import functional as F
-import natsort
-from torchvision.transforms import ToTensor
-import cv2
-import numpy as np
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 def fiFindByWildcard(wildcard):
     return natsort.natsorted(glob.glob(wildcard, recursive=True))
@@ -37,11 +35,10 @@ def main(inp_dir):
 
     device = torch.device('cuda:0')
     
-    # 1. Load to CPU to avoid the 'invalid load key' and VRAM spikes
+    # 3. Memory Optimization: Load to CPU first
     print("Loading weights...")
     state_dict = torch.load('/kaggle/working/BharathPreTrainedDS/weight_lol.pth', map_location='cpu')
 
-    # 2. Initialize and load models
     model = DiT_incontext_revise().to(device)
     model.load_state_dict(state_dict['dit'])
     
@@ -54,9 +51,9 @@ def main(inp_dir):
     second_decoder = Decoder2().to(device)
     second_decoder.load_state_dict(state_dict['second_decoder'])
 
-    # 3. CRITICAL: Free the CPU RAM immediately
+    # 4. Clean up CPU memory immediately
     del state_dict 
-    gc.collect() # Only extra addition to clear Python 3.8 memory
+    gc.collect() 
     torch.cuda.empty_cache()
 
     model.eval()
@@ -67,10 +64,11 @@ def main(inp_dir):
     diffusion_val = create_diffusion(str(25))
     to_tensor = ToTensor()
 
+    print(f"Processing {len(lr_paths)} images...")
+
     for lr_path, global_path, local_path in zip(lr_paths, global_prior_paths, local_prior_paths):
         print(f"Processing: {os.path.basename(lr_path)}")
         
-        # Ensure image is moved to GPU
         y = to_tensor(cv2.cvtColor(cv2.imread(lr_path), cv2.COLOR_BGR2RGB)).unsqueeze(0).to(device)
         global_prior = torch.load(global_path, map_location=device)
         local_prior = torch.load(local_path, map_location=device)
@@ -81,7 +79,7 @@ def main(inp_dir):
             z = torch.randn(1, 3, h // 4, w // 4, device=device)
             model_kwargs = dict(y=y_feat, vis=global_prior, q_map=local_prior)
 
-            # Sampling images
+            # Sampling (iterative process)
             samples = diffusion_val.p_sample_loop(
                 model.forward, z.shape, z, clip_denoised=False, 
                 model_kwargs=model_kwargs, progress=True, device=device
@@ -92,7 +90,7 @@ def main(inp_dir):
                   
         save_image(sr, os.path.join(out_dir, os.path.basename(lr_path)))
         
-        # 4. Clear GPU cache after each image
+        # 5. Clear GPU cache after every image to prevent crash
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
