@@ -68,6 +68,7 @@ def main(inp_dir):
     for lr_path, global_path, local_path, test_index in zip(lr_paths, global_prior_paths, local_prior_paths, range(len(lr_paths))):
         
         #y = t(imread(lr_path)).to(device)
+        print(f"Processing image {test_index + 1}: {os.path.basename(lr_path)}")
 
         y = to_tensor(cv2.cvtColor(cv2.imread(lr_path), cv2.COLOR_BGR2RGB)).unsqueeze(0)
         #print(y.shape)
@@ -94,6 +95,7 @@ def main(inp_dir):
                   
         save_img_path = os.path.join(out_dir, os.path.basename(lr_path))                   
         save_image(sr, save_img_path)
+        print(f"Successfully saved enhanced image to: {save_img_path}")
 
 
 if __name__ == "__main__":
