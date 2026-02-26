@@ -66,36 +66,39 @@ def main(inp_dir):
     to_tensor = ToTensor()
 
     for lr_path, global_path, local_path, test_index in zip(lr_paths, global_prior_paths, local_prior_paths, range(len(lr_paths))):
-        
-        #y = t(imread(lr_path)).to(device)
         print(f"Processing image {test_index + 1}: {os.path.basename(lr_path)}")
 
-        y = to_tensor(cv2.cvtColor(cv2.imread(lr_path), cv2.COLOR_BGR2RGB)).unsqueeze(0)
-        #print(y.shape)
-        global_prior = torch.load(global_path).to(device)
-        local_prior = torch.load(local_path).to(device)
+        # Load and Resize to a manageable resolution (e.g., 512x512)
+        img_bgr = cv2.imread(lr_path)
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img_rgb, (512, 512)) # Force resolution to 512
+        
+        y = to_tensor(img_resized).unsqueeze(0).to(device)
+        global_prior = torch.load(global_path, map_location=device)
+        local_prior = torch.load(local_path, map_location=device)
 
-
-        b, c, h, w = y.shape
         with torch.no_grad():
-            y, enc_feat = cond_lq(y.to(device), True)
-            latent_size_h = h // 4
-            latent_size_w = w // 4
-            z = torch.randn(1, 3, latent_size_h, latent_size_w, device=device)
-            model_kwargs = dict(y=y, vis=global_prior, q_map=local_prior)
+            # Memory clearing before heavy lifting
+            torch.cuda.empty_cache() 
+            
+            y_feat, enc_feat = cond_lq(y, True)
+            
+            # Use the resized height/width for latent size
+            b, c, h, w = y.shape
+            z = torch.randn(1, 3, h // 4, w // 4, device=device)
+            model_kwargs = dict(y=y_feat, vis=global_prior, q_map=local_prior)
 
-            # Sample images:
             samples = diffusion_val.p_sample_loop(
-                model.forward, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=False, device=device
-                )
+                model.forward, z.shape, z, clip_denoised=False, 
+                model_kwargs=model_kwargs, progress=True, device=device
+            )
 
             dec_feat = vae.decode(samples, mid_feat=True)
-            
             sr = second_decoder(samples, dec_feat, enc_feat)
                   
         save_img_path = os.path.join(out_dir, os.path.basename(lr_path))                   
         save_image(sr, save_img_path)
-        print(f"Successfully saved enhanced image to: {save_img_path}")
+        print(f"Successfully saved: {save_img_path}")
 
 
 if __name__ == "__main__":
