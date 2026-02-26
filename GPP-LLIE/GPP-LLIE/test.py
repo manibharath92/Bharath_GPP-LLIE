@@ -42,7 +42,7 @@ def main(inp_dir):
     local_prior_paths = fiFindByWildcard(os.path.join(local_prior_dir, '*.pt'))
 
     device = torch.device('cuda:0')
-    state_dict = torch.load('weight_lolv2_syn.pth')
+    state_dict = torch.load('/kaggle/working/BharathPreTrainedDS/weight_lol.pth')
 
     model = DiT_incontext_revise()
     model.load_state_dict(state_dict['dit'], strict=True)
@@ -98,6 +98,6 @@ def main(inp_dir):
 
 if __name__ == "__main__":
 
-    input_dir = 'dataset/LOLv2_syn/Test'# update the input dir, which at least contains such sub-folder: low, global_score, local_prior
+    input_dir = '/kaggle/working/imgEnhancement/Test'# update the input dir, which at least contains such sub-folder: low, global_score, local_prior
 
     main(input_dir)
