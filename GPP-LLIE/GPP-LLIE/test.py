@@ -4,6 +4,7 @@ torch.backends.cudnn.allow_tf32 = True
 
 import glob
 import os
+import gc
 from model_incontext_revise import DiT_incontext_revise
 from diffusion import create_diffusion
 from vae.autoencoder import AutoencoderKL
@@ -20,86 +21,80 @@ import numpy as np
 
 def fiFindByWildcard(wildcard):
     return natsort.natsorted(glob.glob(wildcard, recursive=True))
-def t(array): return torch.Tensor(np.expand_dims(array.transpose([2, 0, 1]), axis=0).astype(np.float32)) / 255
-def rgb(t): return (
-        np.clip((t[0] if len(t.shape) == 4 else t).detach().cpu().numpy().transpose([1, 2, 0]), 0, 1) * 255).astype(
-    np.uint8)
-def imread(path):
-    return cv2.imread(path)[:, :, [2, 1, 0]]
-
 
 def main(inp_dir):
-
     lr_dir = os.path.join(inp_dir, 'low')
     global_prior_dir = os.path.join(inp_dir, 'global_score')
     local_prior_dir = os.path.join(inp_dir, 'local_prior')
 
     out_dir = os.path.join(inp_dir, 'outputs')
-    os.makedirs(out_dir, exist_ok=True)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
     lr_paths = fiFindByWildcard(os.path.join(lr_dir, '*.png'))
     global_prior_paths = fiFindByWildcard(os.path.join(global_prior_dir, '*.pt'))
     local_prior_paths = fiFindByWildcard(os.path.join(local_prior_dir, '*.pt'))
 
     device = torch.device('cuda:0')
-    state_dict = torch.load('/kaggle/working/BharathPreTrainedDS/weight_lol.pth')
+    
+    # 1. Load to CPU to avoid the 'invalid load key' and VRAM spikes
+    print("Loading weights...")
+    state_dict = torch.load('/kaggle/working/BharathPreTrainedDS/weight_lol.pth', map_location='cpu')
 
-    model = DiT_incontext_revise()
-    model.load_state_dict(state_dict['dit'], strict=True)
-    model = model.to(device)
+    # 2. Initialize and load models
+    model = DiT_incontext_revise().to(device)
+    model.load_state_dict(state_dict['dit'])
+    
+    vae = AutoencoderKL().to(device)
+    vae.load_state_dict(state_dict['vae'])
+    
+    cond_lq = CondEncoder().to(device)
+    cond_lq.load_state_dict(state_dict['cond'])
+    
+    second_decoder = Decoder2().to(device)
+    second_decoder.load_state_dict(state_dict['second_decoder'])
 
-    vae = AutoencoderKL()
-    vae.load_state_dict(state_dict['vae'], strict=True)
-    vae = vae.to(device)
-
-    cond_lq = CondEncoder()
-    cond_lq.load_state_dict(state_dict['cond'], strict=True)
-    cond_lq = cond_lq.to(device)
-
-    second_decoder = Decoder2()
-    second_decoder.load_state_dict(state_dict['second_decoder'], strict=True)
-    second_decoder = second_decoder.to(device)
+    # 3. CRITICAL: Free the CPU RAM immediately
+    del state_dict 
+    gc.collect() # Only extra addition to clear Python 3.8 memory
+    torch.cuda.empty_cache()
 
     model.eval()
-    diffusion_val = create_diffusion(str(25))  # number of sample steps
+    vae.eval()
+    cond_lq.eval()
+    second_decoder.eval()
 
+    diffusion_val = create_diffusion(str(25))
     to_tensor = ToTensor()
 
-    for lr_path, global_path, local_path, test_index in zip(lr_paths, global_prior_paths, local_prior_paths, range(len(lr_paths))):
+    for lr_path, global_path, local_path in zip(lr_paths, global_prior_paths, local_prior_paths):
+        print(f"Processing: {os.path.basename(lr_path)}")
         
-        #y = t(imread(lr_path)).to(device)
-        print(f"Processing image {test_index + 1}: {os.path.basename(lr_path)}")
+        # Ensure image is moved to GPU
+        y = to_tensor(cv2.cvtColor(cv2.imread(lr_path), cv2.COLOR_BGR2RGB)).unsqueeze(0).to(device)
+        global_prior = torch.load(global_path, map_location=device)
+        local_prior = torch.load(local_path, map_location=device)
 
-        y = to_tensor(cv2.cvtColor(cv2.imread(lr_path), cv2.COLOR_BGR2RGB)).unsqueeze(0)
-        #print(y.shape)
-        global_prior = torch.load(global_path).to(device)
-        local_prior = torch.load(local_path).to(device)
-
-
-        b, c, h, w = y.shape
         with torch.no_grad():
-            y, enc_feat = cond_lq(y.to(device), True)
-            latent_size_h = h // 4
-            latent_size_w = w // 4
-            z = torch.randn(1, 3, latent_size_h, latent_size_w, device=device)
-            model_kwargs = dict(y=y, vis=global_prior, q_map=local_prior)
+            y_feat, enc_feat = cond_lq(y, True)
+            b, c, h, w = y.shape
+            z = torch.randn(1, 3, h // 4, w // 4, device=device)
+            model_kwargs = dict(y=y_feat, vis=global_prior, q_map=local_prior)
 
-            # Sample images:
+            # Sampling images
             samples = diffusion_val.p_sample_loop(
-                model.forward, z.shape, z, clip_denoised=False, model_kwargs=model_kwargs, progress=False, device=device
-                )
+                model.forward, z.shape, z, clip_denoised=False, 
+                model_kwargs=model_kwargs, progress=True, device=device
+            )
 
             dec_feat = vae.decode(samples, mid_feat=True)
-            
             sr = second_decoder(samples, dec_feat, enc_feat)
                   
-        save_img_path = os.path.join(out_dir, os.path.basename(lr_path))                   
-        save_image(sr, save_img_path)
-        print(f"Successfully saved enhanced image to: {save_img_path}")
-
+        save_image(sr, os.path.join(out_dir, os.path.basename(lr_path)))
+        
+        # 4. Clear GPU cache after each image
+        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
-
-    input_dir = '/kaggle/working/imgEnhancement/Test'# update the input dir, which at least contains such sub-folder: low, global_score, local_prior
-
+    input_dir = '/kaggle/working/imgEnhancement/Test'
     main(input_dir)
