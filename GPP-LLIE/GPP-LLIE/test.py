@@ -86,6 +86,9 @@ def main(inp_dir):
             # Use the resized height/width for latent size
             b, c, h, w = y.shape
             z = torch.randn(1, 3, h // 4, w // 4, device=device)
+            print(f"Latent z shape: {z.shape} -> tokens: {z.shape[2] * z.shape[3]}")
+            print(f"Global prior shape: {global_prior.shape}")
+            print(f"Local prior (q_map) shape: {local_prior.shape}")
             model_kwargs = dict(y=y_feat, vis=global_prior, q_map=local_prior)
 
             samples = diffusion_val.p_sample_loop(
