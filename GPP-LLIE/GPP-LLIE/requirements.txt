@@ -15,5 +15,3 @@ tqdm
 yapf
 pyiqa>=0.1.4
 einops
-
-https://arxiv.org/abs/2412.20916
