@@ -1,7 +1,7 @@
 # 1. Build CUDA extensions (DCN)
 ```bash
 cd defor_cuda_ext
-BASICSR_EXT=True python setup.py develop
+BASICSR_EXT=True /kaggle/working/py38/bin/python3.8 setup.py develop
 ```
 # 3. Move compiled extensions to main path
 ```bash
