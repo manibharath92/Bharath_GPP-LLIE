@@ -162,6 +162,7 @@ def eval_model(args):
 
     for image_path, _ in zip(image_paths, range(len(image_paths))):
         image = load_image(image_path)
+        image = image.resize((512, 512), Image.BILINEAR)
         image_tensor = image_processor.preprocess(image, return_tensors='pt')['pixel_values'].half().cuda()
         
       

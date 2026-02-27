@@ -77,19 +77,6 @@ def main(inp_dir):
         global_prior = torch.load(global_path, map_location=device)
         local_prior = torch.load(local_path, map_location=device)
 
-        # The latent z is (h//4, w//4). The local_prior MUST match this.
-        latent_h, latent_w = 512 // 4, 512 // 4 # Results in 128, 128
-        
-        if local_prior.shape[-2:] != (latent_h, latent_w):
-            print(f"Resizing local_prior from {local_prior.shape[-2:]} to {(latent_h, latent_w)}")
-            local_prior = F.interpolate(
-                local_prior, 
-                size=(latent_h, latent_w), 
-                mode='bilinear', 
-                align_corners=False
-            )
-        # -------------------------
-
         with torch.no_grad():
             # Memory clearing before heavy lifting
             torch.cuda.empty_cache() 

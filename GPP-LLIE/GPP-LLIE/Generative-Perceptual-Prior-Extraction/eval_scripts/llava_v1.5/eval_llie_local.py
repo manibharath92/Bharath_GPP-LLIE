@@ -166,6 +166,7 @@ def eval_model(args):
     for image_path, _ in zip(image_paths, range(len(image_paths))):
         print('processing', image_path)
         image = load_image(image_path)
+        image = image.resize((512, 512), Image.BILINEAR)
         image_numpy = np.array(image)
         patchify_factor = 4
         patch_images, padding_params = patchify_numpy(image_numpy, patchify_factor=patchify_factor)
